@@ -30,6 +30,8 @@ from app.schema import (
     ToolChoice,
 )
 
+from app.helpers import read_stream_completion
+
 
 REASONING_MODELS = ["o1", "o3-mini"]
 MULTIMODAL_MODELS = [
@@ -728,10 +730,14 @@ class LLM:
                     temperature if temperature is not None else self.temperature
                 )
 
-            params["stream"] = False  # Always use non-streaming for tool requests
-            response: ChatCompletion = await self.client.chat.completions.create(
+            params["stream"] = True  # Always use non-streaming for tool requests
+            params["stream_options"] = {"include_usage": True}
+            params["extra_body"] = {"enable_thinking": True}
+
+            stream_response: ChatCompletion = await self.client.chat.completions.create(
                 **params
             )
+            response, _ = await read_stream_completion(stream_response)
 
             # Check if response is valid
             if not response.choices or not response.choices[0].message:
