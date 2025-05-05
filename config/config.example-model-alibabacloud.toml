@@ -1,0 +1,17 @@
+# Global LLM configuration
+[llm]
+model = "qwen3-235b-a22b"                       # The LLM model to use qwen3-235b-a22b qwen-max-latest qwq-32b
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/"      # API endpoint URL
+api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" # Your API key
+max_tokens = 8192                               # Maximum number of tokens in the response
+temperature = 0.0                               # Controls randomness
+
+
+# Optional configuration for specific LLM models
+[llm.vision]
+model = "qwen-vl-max-latest"                    # The vision model to use
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/" # API endpoint URL for vision model
+api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" # Your API key for vision model
+max_tokens = 8192                               # Maximum number of tokens in the response
+temperature = 0.0                               # Controls randomness for vision model
+
