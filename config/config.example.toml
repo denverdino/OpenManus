@@ -94,6 +94,7 @@ temperature = 0.0                          # Controls randomness for vision mode
 #cpu_limit = 2.0
 #timeout = 300
 #network_enabled = true
+#runtime= ""
 
 # MCP (Model Context Protocol) configuration
 [mcp]

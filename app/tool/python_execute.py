@@ -1,8 +1,12 @@
+import asyncio
+import atexit
 import multiprocessing
 import sys
 from io import StringIO
 from typing import Dict
 
+from app.config import config
+from app.sandbox.client import SANDBOX_CLIENT
 from app.tool.base import BaseTool
 
 
@@ -10,7 +14,9 @@ class PythonExecute(BaseTool):
     """A tool for executing Python code with timeout and safety restrictions."""
 
     name: str = "python_execute"
-    description: str = "Executes Python code string. Note: Only print outputs are visible, function return values are not captured. Use print statements to see results."
+    description: str = (
+        "Executes Python code string. Note: Only print outputs are visible, function return values are not captured. Use print statements to see results. If the code depends on any non-builtin modules, install those packages before importing them at the top of the code. for example: \nimport subprocess\nsubprocess.call(['pip', 'install', 'numpy'])\nimport numpy "
+    )
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -51,6 +57,22 @@ class PythonExecute(BaseTool):
         Returns:
             Dict: Contains 'output' with execution output or error message and 'success' status.
         """
+
+        print(code)
+
+        if config.sandbox.use_sandbox:
+            timeout = config.sandbox.timeout
+            client = SANDBOX_CLIENT
+            try:
+                await client.create(config.sandbox)
+                await client.write_file("/workspace/code.py", code)
+                result = await client.run_command("python3 code.py", timeout)
+                return {
+                    "observation": result,
+                    "success": True,
+                }
+            finally:
+                await client.cleanup()
 
         with multiprocessing.Manager() as manager:
             result = manager.dict({"observation": "", "success": False})

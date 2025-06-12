@@ -91,7 +91,7 @@ async def test_sandbox_python_environment(sandbox):
     """Tests Python environment configuration."""
     # Test Python version
     result = await sandbox.terminal.run_command("python3 --version")
-    assert "Python 3.10" in result
+    assert "Python 3.12" in result
 
     # Test basic module imports
     python_code = """
@@ -113,8 +113,8 @@ async def test_sandbox_network_access(sandbox):
 
     # Test network connectivity
     await sandbox.terminal.run_command("apt update && apt install curl -y")
-    result = await sandbox.terminal.run_command("curl -I https://www.example.com")
-    assert "HTTP/2 200" in result
+    result = await sandbox.terminal.run_command("curl -I https://www.baidu.com")
+    assert "HTTP/1.1 200" in result
 
 
 @pytest.mark.asyncio

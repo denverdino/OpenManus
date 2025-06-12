@@ -103,6 +103,7 @@ class SandboxSettings(BaseModel):
     network_enabled: bool = Field(
         False, description="Whether network access is allowed"
     )
+    runtime: str = Field("", description="Container runtime")
 
 
 class MCPServerConfig(BaseModel):

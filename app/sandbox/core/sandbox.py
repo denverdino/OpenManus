@@ -64,6 +64,7 @@ class DockerSandbox:
                 cpu_quota=int(100000 * self.config.cpu_limit),
                 network_mode="none" if not self.config.network_enabled else "bridge",
                 binds=self._prepare_volume_bindings(),
+                runtime=self.config.runtime,
             )
 
             # Generate unique container name with sandbox_ prefix
@@ -91,7 +92,7 @@ class DockerSandbox:
             self.terminal = AsyncDockerizedTerminal(
                 container["Id"],
                 self.config.work_dir,
-                env_vars={"PYTHONUNBUFFERED": "1"}
+                env_vars={"PYTHONUNBUFFERED": "1"},
                 # Ensure Python output is not buffered
             )
             await self.terminal.init()

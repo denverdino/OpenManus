@@ -54,7 +54,7 @@ class DockerSession:
             tty=True,
             stdout=True,
             stderr=True,
-            privileged=True,
+            privileged=False,
             user="root",
             environment={**env_vars, "TERM": "dumb", "PS1": "$ ", "PROMPT_COMMAND": ""},
         )
@@ -163,6 +163,7 @@ class DockerSession:
                 buffer = b""
                 result_lines = []
                 command_sent = False
+                command_executed = False
 
                 while True:
                     try:
@@ -183,10 +184,16 @@ class DockerSession:
                                 command_sent = True
                                 continue
 
-                            if line.strip() == b"echo $?" or line.strip().isdigit():
+                            line_str = line.strip()
+
+                            if line_str == b"$ echo $?":
+                                command_executed = True
                                 continue
 
-                            if line.strip():
+                            if command_executed and line_str.isdigit():
+                                continue
+
+                            if line_str:
                                 result_lines.append(line)
 
                         if buffer.endswith(b"$ "):
@@ -199,7 +206,7 @@ class DockerSession:
                         raise
 
                 output = b"\n".join(result_lines).decode("utf-8")
-                output = re.sub(r"\n\$ echo \$\$?.*$", "", output)
+                # output = re.sub(r"\n\$ echo \$\$?.*$", "", output)
 
                 return output
 
