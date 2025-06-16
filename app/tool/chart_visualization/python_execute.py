@@ -6,7 +6,9 @@ class NormalPythonExecute(PythonExecute):
     """A tool for executing Python code with timeout and safety restrictions."""
 
     name: str = "python_execute"
-    description: str = """Execute Python code for in-depth data analysis / data report(task conclusion) / other normal task without direct visualization."""
+    description: str = (
+        """Execute Python code for in-depth data analysis / data report(task conclusion) / other normal task without direct visualization."""
+    )
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -25,12 +27,12 @@ class NormalPythonExecute(PythonExecute):
 3. Save any report / processed files / each analysis result in worksapce directory: {directory}
 4. Data reports need to be content-rich, including your overall analysis process and corresponding data visualization.
 5. You can invode this tool step-by-step to do data analysis from summary to in-depth with data report saved also""".format(
-                    directory=config.workspace_root
+                    directory=config.workspace_root_or_sandbox_work_dir
                 ),
             },
         },
         "required": ["code"],
     }
 
-    async def execute(self, code: str, code_type: str | None = None, timeout=5):
+    async def execute(self, code: str, code_type: str | None = None, timeout=300):
         return await super().execute(code, timeout)

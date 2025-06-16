@@ -3,10 +3,12 @@ import atexit
 import multiprocessing
 import sys
 from io import StringIO
-from typing import Dict
+from typing import Any, Dict
+
+from pydantic import Field
 
 from app.config import config
-from app.sandbox.client import SANDBOX_CLIENT
+from app.sandbox.client import SANDBOX_CLIENT, BaseSandboxClient
 from app.tool.base import BaseTool
 
 
@@ -27,6 +29,7 @@ class PythonExecute(BaseTool):
         },
         "required": ["code"],
     }
+    sandbox_client: BaseSandboxClient = Field(None)
 
     def _run_code(self, code: str, result_dict: dict, safe_globals: dict) -> None:
         original_stdout = sys.stdout
@@ -41,6 +44,14 @@ class PythonExecute(BaseTool):
             result_dict["success"] = False
         finally:
             sys.stdout = original_stdout
+
+    async def _ensure_sandbox_initialized(self):
+        """Ensure sandbox is initialized."""
+        if config.sandbox.use_sandbox and self.sandbox_client == None:
+            self.sandbox_client = SANDBOX_CLIENT
+
+        if self.sandbox_client:
+            await self.sandbox_client.create(config.sandbox)
 
     async def execute(
         self,
@@ -62,17 +73,25 @@ class PythonExecute(BaseTool):
 
         if config.sandbox.use_sandbox:
             timeout = config.sandbox.timeout
-            client = SANDBOX_CLIENT
             try:
-                await client.create(config.sandbox)
-                await client.write_file("/workspace/code.py", code)
-                result = await client.run_command("python3 code.py", timeout)
+                await self._ensure_sandbox_initialized()
+                if config.sandbox.shared_workspace:
+                    # Write code.py to workspace
+                    with open(
+                        config.workspace_root / "code.py", "w", encoding="utf-8"
+                    ) as f:
+                        f.write(code)
+                else:
+                    await self.sandbox_client.write_file("/workspace/code.py", code)
+                result = await self.sandbox_client.run_command(
+                    "python3 code.py", timeout
+                )
                 return {
                     "observation": result,
                     "success": True,
                 }
             finally:
-                await client.cleanup()
+                await self.sandbox_client.cleanup()
 
         with multiprocessing.Manager() as manager:
             result = manager.dict({"observation": "", "success": False})

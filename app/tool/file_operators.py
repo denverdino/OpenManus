@@ -8,7 +8,6 @@ from app.config import SandboxSettings
 from app.exceptions import ToolError
 from app.sandbox.client import SANDBOX_CLIENT
 
-
 PathLike = Union[str, Path]
 
 
@@ -106,42 +105,52 @@ class SandboxFileOperator(FileOperator):
 
     async def read_file(self, path: PathLike) -> str:
         """Read content from a file in sandbox."""
-        await self._ensure_sandbox_initialized()
         try:
+            await self._ensure_sandbox_initialized()
             return await self.sandbox_client.read_file(str(path))
         except Exception as e:
             raise ToolError(f"Failed to read {path} in sandbox: {str(e)}") from None
+        finally:
+            await self.sandbox_client.cleanup()
 
     async def write_file(self, path: PathLike, content: str) -> None:
         """Write content to a file in sandbox."""
-        await self._ensure_sandbox_initialized()
         try:
+            await self._ensure_sandbox_initialized()
             await self.sandbox_client.write_file(str(path), content)
         except Exception as e:
             raise ToolError(f"Failed to write to {path} in sandbox: {str(e)}") from None
+        finally:
+            await self.sandbox_client.cleanup()
 
     async def is_directory(self, path: PathLike) -> bool:
         """Check if path points to a directory in sandbox."""
-        await self._ensure_sandbox_initialized()
-        result = await self.sandbox_client.run_command(
-            f"test -d {path} && echo 'true' || echo 'false'"
-        )
-        return result.strip() == "true"
+        try:
+            await self._ensure_sandbox_initialized()
+            result = await self.sandbox_client.run_command(
+                f"test -d {path} && echo 'true' || echo 'false'"
+            )
+            return result.strip() == "true"
+        finally:
+            await self.sandbox_client.cleanup()
 
     async def exists(self, path: PathLike) -> bool:
         """Check if path exists in sandbox."""
-        await self._ensure_sandbox_initialized()
-        result = await self.sandbox_client.run_command(
-            f"test -e {path} && echo 'true' || echo 'false'"
-        )
-        return result.strip() == "true"
+        try:
+            await self._ensure_sandbox_initialized()
+            result = await self.sandbox_client.run_command(
+                f"test -e {path} && echo 'true' || echo 'false'"
+            )
+            return result.strip() == "true"
+        finally:
+            await self.sandbox_client.cleanup()
 
     async def run_command(
         self, cmd: str, timeout: Optional[float] = 120.0
     ) -> Tuple[int, str, str]:
         """Run a command in sandbox environment."""
-        await self._ensure_sandbox_initialized()
         try:
+            await self._ensure_sandbox_initialized()
             stdout = await self.sandbox_client.run_command(
                 cmd, timeout=int(timeout) if timeout else None
             )
@@ -156,3 +165,5 @@ class SandboxFileOperator(FileOperator):
             ) from exc
         except Exception as exc:
             return 1, "", f"Error executing command in sandbox: {str(exc)}"
+        finally:
+            await self.sandbox_client.cleanup()

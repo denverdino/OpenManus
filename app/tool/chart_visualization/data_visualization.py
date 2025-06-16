@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from pathlib import Path
 from typing import Any, Hashable
 
 import pandas as pd
@@ -9,6 +10,7 @@ from pydantic import Field, model_validator
 from app.config import config
 from app.llm import LLM
 from app.logger import logger
+from app.sandbox.client import SANDBOX_CLIENT, BaseSandboxClient
 from app.tool.base import BaseTool
 
 
@@ -68,14 +70,30 @@ Outputs:
             if os.path.exists(item[path_str]):
                 res.append(item[path_str])
             elif os.path.exists(
-                os.path.join(f"{directory or config.workspace_root}", item[path_str])
+                os.path.join(
+                    f"{directory or config.workspace_root}",
+                    item[path_str],
+                )
             ):
                 res.append(
                     os.path.join(
-                        f"{directory or config.workspace_root}", item[path_str]
+                        f"{directory or config.workspace_root}",
+                        item[path_str],
                     )
                 )
             else:
+                if config.sandbox.use_sandbox and config.sandbox.shared_workspace:
+                    if item[path_str].startswith(config.sandbox.work_dir):
+                        relative = Path(item[path_str]).relative_to(
+                            Path(config.sandbox.work_dir)
+                        )
+                        new_path = os.path.join(
+                            f"{directory or config.workspace_root}",
+                            str(relative),
+                        )
+                        if os.path.exists(new_path):
+                            res.append(new_path)
+                            continue
                 raise Exception(f"No such file or directory: {item[path_str]}")
         return res
 
@@ -111,19 +129,36 @@ Outputs:
                     "chartTitle": item["chartTitle"],
                 }
             )
-        tasks = [
-            self.invoke_vmind(
-                dict_data=item["dict_data"],
-                chart_description=item["chartTitle"],
-                file_name=item["file_name"],
-                output_type=output_type,
-                task_type="visualization",
-                language=language,
-            )
-            for item in data_list
-        ]
 
-        results = await asyncio.gather(*tasks)
+        results = []
+        if config.sandbox.use_sandbox:
+            try:
+                await self._ensure_sandbox_initialized()
+                for item in data_list:
+                    result = await self.invoke_vmind(
+                        dict_data=item["dict_data"],
+                        chart_description=item["chartTitle"],
+                        file_name=item["file_name"],
+                        output_type=output_type,
+                        task_type="visualization",
+                        language=language,
+                    )
+                    results.append(result)
+            finally:
+                await self.sandbox_client.cleanup()
+        else:
+            tasks = [
+                self.invoke_vmind(
+                    dict_data=item["dict_data"],
+                    chart_description=item["chartTitle"],
+                    file_name=item["file_name"],
+                    output_type=output_type,
+                    task_type="visualization",
+                    language=language,
+                )
+                for item in data_list
+            ]
+            results = await asyncio.gather(*tasks)
         error_list = []
         success_list = []
         for index, result in enumerate(results):
@@ -150,7 +185,9 @@ Outputs:
     ) -> str:
         data_list = []
         chart_file_path = self.get_file_path(
-            json_info, "chartPath", os.path.join(config.workspace_root, "visualization")
+            json_info,
+            "chartPath",
+            os.path.join(config.workspace_root_or_sandbox_work_dir, "visualization"),
         )
         for index, item in enumerate(json_info):
             if "insights_id" in item:
@@ -162,16 +199,31 @@ Outputs:
                         "insights_id": item["insights_id"],
                     }
                 )
-        tasks = [
-            self.invoke_vmind(
-                insights_id=item["insights_id"],
-                file_name=item["file_name"],
-                output_type=output_type,
-                task_type="insight",
-            )
-            for item in data_list
-        ]
-        results = await asyncio.gather(*tasks)
+        results = []
+        if config.sandbox.use_sandbox:
+            try:
+                await self._ensure_sandbox_initialized()
+                for item in data_list:
+                    result = await self.invoke_vmind(
+                        insights_id=item["insights_id"],
+                        file_name=item["file_name"],
+                        output_type=output_type,
+                        task_type="insight",
+                    )
+                    results.append(result)
+            finally:
+                await self.sandbox_client.cleanup()
+        else:
+            tasks = [
+                self.invoke_vmind(
+                    insights_id=item["insights_id"],
+                    file_name=item["file_name"],
+                    output_type=output_type,
+                    task_type="insight",
+                )
+                for item in data_list
+            ]
+            results = await asyncio.gather(*tasks)
         error_list = []
         success_list = []
         for index, result in enumerate(results):
@@ -202,8 +254,11 @@ Outputs:
     ) -> str:
         try:
             logger.info(f"📈 data_visualization with {json_path} in: {tool_type} ")
-            with open(json_path, "r", encoding="utf-8") as file:
-                json_info = json.load(file)
+
+            json_info = await self.json_load(json_path)
+            if isinstance(json_info, dict):
+                json_info = [json_info]
+
             if tool_type == "visualization":
                 return await self.data_visualization(json_info, output_type, language)
             else:
@@ -213,6 +268,28 @@ Outputs:
                 "observation": f"Error: {e}",
                 "success": False,
             }
+
+    sandbox_client: BaseSandboxClient = Field(None)
+
+    async def _ensure_sandbox_initialized(self):
+        """Ensure sandbox is initialized."""
+        if config.sandbox.use_sandbox and self.sandbox_client == None:
+            self.sandbox_client = SANDBOX_CLIENT
+
+        if self.sandbox_client:
+            await self.sandbox_client.create(config.sandbox)
+
+    async def json_load(self, json_path):
+        if config.sandbox.use_sandbox:
+            try:
+                await self._ensure_sandbox_initialized()
+                content = await self.sandbox_client.read_file(json_path)
+                return json.loads(content)
+            finally:
+                await self.sandbox_client.cleanup()
+        else:
+            with open(json_path, "r", encoding="utf-8") as file:
+                return json.load(file)
 
     async def invoke_vmind(
         self,
@@ -237,27 +314,49 @@ Outputs:
             "output_type": output_type,
             "insights_id": insights_id,
             "task_type": task_type,
-            "directory": str(config.workspace_root),
+            "directory": str(config.workspace_root_or_sandbox_work_dir),
             "language": language,
         }
-        # build async sub process
-        process = await asyncio.create_subprocess_exec(
-            "npx",
-            "ts-node",
-            "src/chartVisualize.ts",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=os.path.dirname(__file__),
-        )
+
         input_json = json.dumps(vmind_params, ensure_ascii=False).encode("utf-8")
-        try:
-            stdout, stderr = await process.communicate(input_json)
-            stdout_str = stdout.decode("utf-8")
-            stderr_str = stderr.decode("utf-8")
-            if process.returncode == 0:
-                return json.loads(stdout_str)
+
+        if config.sandbox.use_sandbox:
+            timeout = config.sandbox.timeout
+            if config.sandbox.shared_workspace:
+                # Write code.py to workspace
+                with open(config.workspace_root / "vmind_input.json", "wb") as f:
+                    f.write(input_json)
             else:
-                return {"error": f"Node.js Error: {stderr_str}"}
-        except Exception as e:
-            return {"error": f"Subprocess Error: {str(e)}"}
+                await self.sandbox_client.write_file(
+                    "/workspace/vmind_input.json", input_json
+                )
+            result = await self.sandbox_client.run_command(
+                "cd /chart_visualization/ && npx ts-node ./src/chartVisualize.ts < /workspace/vmind_input.json",
+                timeout,
+            )
+            try:
+                return json.loads(result)
+            except Exception as e:
+                return {"error": f"Subprocess Error: {result}"}
+        else:
+            # build async sub process
+            process = await asyncio.create_subprocess_exec(
+                "npx",
+                "ts-node",
+                "src/chartVisualize.ts",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=os.path.dirname(__file__),
+            )
+
+            try:
+                stdout, stderr = await process.communicate(input_json)
+                stdout_str = stdout.decode("utf-8")
+                stderr_str = stderr.decode("utf-8")
+                if process.returncode == 0:
+                    return json.loads(stdout_str)
+                else:
+                    return {"error": f"Node.js Error: {stderr_str}"}
+            except Exception as e:
+                return {"error": f"Subprocess Error: {str(e)}"}

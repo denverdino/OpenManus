@@ -104,6 +104,9 @@ class SandboxSettings(BaseModel):
         False, description="Whether network access is allowed"
     )
     runtime: str = Field("", description="Container runtime")
+    shared_workspace: bool = Field(
+        False, description="Whether share workspace with OpenManus"
+    )
 
 
 class MCPServerConfig(BaseModel):
@@ -331,6 +334,14 @@ class Config:
     def workspace_root(self) -> Path:
         """Get the workspace root directory"""
         return WORKSPACE_ROOT
+
+    @property
+    def workspace_root_or_sandbox_work_dir(self) -> Path:
+        """Get the workspace root directory"""
+        if self._config.sandbox.use_sandbox and self._config.sandbox.shared_workspace:
+            return self._config.sandbox.work_dir
+        else:
+            return WORKSPACE_ROOT
 
     @property
     def root_path(self) -> Path:

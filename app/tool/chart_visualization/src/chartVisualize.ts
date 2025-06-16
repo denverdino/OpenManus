@@ -25,7 +25,10 @@ const getBase64 = async (spec: any, width?: number, height?: number) => {
   spec.animation = false;
   width && (spec.width = width);
   height && (spec.height = height);
-  const browser = await puppeteer.launch();
+  const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    headless: true
+  });
   const page = await browser.newPage();
   await page.setContent(getHtmlVChart(spec, width, height));
 
@@ -63,8 +66,7 @@ function getHtmlVChart(spec: any, width?: number, height?: number) {
     <script src="https://unpkg.com/@visactor/vchart/build/index.min.js"></script>
 </head>
 <body>
-    <div id="chart-container" style="width: ${
-      width ? `${width}px` : "100%"
+    <div id="chart-container" style="width: ${width ? `${width}px` : "100%"
     }; height: ${height ? `${height}px` : "100%"};"></div>
     <script>
       // parse spec with function

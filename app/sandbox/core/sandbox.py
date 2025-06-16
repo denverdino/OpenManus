@@ -10,7 +10,7 @@ import docker
 from docker.errors import NotFound
 from docker.models.containers import Container
 
-from app.config import SandboxSettings
+from app.config import SandboxSettings, config
 from app.sandbox.core.exceptions import SandboxTimeoutError
 from app.sandbox.core.terminal import AsyncDockerizedTerminal
 
@@ -121,8 +121,8 @@ class DockerSandbox:
 
         return bindings
 
-    @staticmethod
-    def _ensure_host_dir(path: str) -> str:
+    # @staticmethod
+    def _ensure_host_dir(self, path: str) -> str:
         """Ensures directory exists on the host.
 
         Args:
@@ -131,6 +131,9 @@ class DockerSandbox:
         Returns:
             Actual path on the host.
         """
+        if self.config.shared_workspace:
+            return config.workspace_root
+
         host_path = os.path.join(
             tempfile.gettempdir(),
             f"sandbox_{os.path.basename(path)}_{os.urandom(4).hex()}",
