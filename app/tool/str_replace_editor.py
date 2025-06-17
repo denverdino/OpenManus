@@ -218,7 +218,8 @@ class StrReplaceEditor(BaseTool):
     @staticmethod
     async def _view_directory(path: PathLike, operator: FileOperator) -> CLIResult:
         """Display directory contents."""
-        find_cmd = f"find {path} -maxdepth 2 -not -path '*/\\.*'"
+        normalized_path = operator.normalize_path(path)
+        find_cmd = f"find {normalized_path} -maxdepth 2 -not -path '*/\\.*'"
 
         # Execute command using the operator
         returncode, stdout, stderr = await operator.run_command(find_cmd)

@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Optional, Protocol, Tuple, Union, runtime_checkable
 
-from app.config import SandboxSettings
+from app.config import config, SandboxSettings
 from app.exceptions import ToolError
 from app.sandbox.client import SANDBOX_CLIENT
 
@@ -29,6 +29,10 @@ class FileOperator(Protocol):
 
     async def exists(self, path: PathLike) -> bool:
         """Check if path exists."""
+        ...
+
+    def normalize_path(self, path: PathLike) -> str:
+        """Normalize path."""
         ...
 
     async def run_command(
@@ -65,6 +69,10 @@ class LocalFileOperator(FileOperator):
         """Check if path exists."""
         return Path(path).exists()
 
+    def normalize_path(self, path: PathLike) -> str:
+        """Normalize path to local filesystem."""
+        return str(path)
+
     async def run_command(
         self, cmd: str, timeout: Optional[float] = 120.0
     ) -> Tuple[int, str, str]:
@@ -98,16 +106,29 @@ class SandboxFileOperator(FileOperator):
     def __init__(self):
         self.sandbox_client = SANDBOX_CLIENT
 
+    def normalize_path(self, path: PathLike) -> str:
+        """Normalize path to sandbox workdir"""
+        # If path is relative to workspace root, convert it to relative to sandbox workdir
+        if Path(path).is_relative_to(config.workspace_root):
+            # Convert to relative path from sandbox workdir
+            return str(
+                Path(config.sandbox.work_dir).joinpath(
+                    Path(path).relative_to(config.workspace_root)
+                )
+            )
+        return path
+
     async def _ensure_sandbox_initialized(self):
         """Ensure sandbox is initialized."""
         if not self.sandbox_client.sandbox:
-            await self.sandbox_client.create(config=SandboxSettings())
+            await self.sandbox_client.create(config=config.sandbox)
 
     async def read_file(self, path: PathLike) -> str:
         """Read content from a file in sandbox."""
         try:
+            normalized_path = self.normalize_path(path)
             await self._ensure_sandbox_initialized()
-            return await self.sandbox_client.read_file(str(path))
+            return await self.sandbox_client.read_file(normalized_path)
         except Exception as e:
             raise ToolError(f"Failed to read {path} in sandbox: {str(e)}") from None
         finally:
@@ -116,8 +137,9 @@ class SandboxFileOperator(FileOperator):
     async def write_file(self, path: PathLike, content: str) -> None:
         """Write content to a file in sandbox."""
         try:
+            normalized_path = self.normalize_path(path)
             await self._ensure_sandbox_initialized()
-            await self.sandbox_client.write_file(str(path), content)
+            await self.sandbox_client.write_file(normalized_path, content)
         except Exception as e:
             raise ToolError(f"Failed to write to {path} in sandbox: {str(e)}") from None
         finally:
@@ -126,9 +148,10 @@ class SandboxFileOperator(FileOperator):
     async def is_directory(self, path: PathLike) -> bool:
         """Check if path points to a directory in sandbox."""
         try:
+            normalized_path = self.normalize_path(path)
             await self._ensure_sandbox_initialized()
             result = await self.sandbox_client.run_command(
-                f"test -d {path} && echo 'true' || echo 'false'"
+                f"test -d {normalized_path} && echo 'true' || echo 'false'"
             )
             return result.strip() == "true"
         finally:
@@ -137,9 +160,10 @@ class SandboxFileOperator(FileOperator):
     async def exists(self, path: PathLike) -> bool:
         """Check if path exists in sandbox."""
         try:
+            normalized_path = self.normalize_path(path)
             await self._ensure_sandbox_initialized()
             result = await self.sandbox_client.run_command(
-                f"test -e {path} && echo 'true' || echo 'false'"
+                f"test -e {normalized_path} && echo 'true' || echo 'false'"
             )
             return result.strip() == "true"
         finally:
